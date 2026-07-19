@@ -342,7 +342,7 @@ export default function App() {
         menu={activeMenu ? bill.menus[activeMenu] : null}
         people={bill.people}
         onClose={() => setActiveMenu(null)}
-        onPriceChange={(price) => activeMenu && bill.updateMenuPrice(activeMenu, price)}
+        onPriceChange={(name, price) => bill.updateMenuPrice(name, price)}
         onTogglePerson={(personName) =>
           activeMenu && bill.toggleMenuPerson(activeMenu, personName)
         }
@@ -351,6 +351,16 @@ export default function App() {
           activeMenu && bill.setMenuPaidBy(activeMenu, personName)
         }
         onAddPerson={bill.addPerson}
+        onRename={(newName) => {
+          if (!activeMenu) return { ok: false, reason: 'missing' }
+          const result = bill.renameMenu(activeMenu, newName)
+          if (result.ok && result.name) setActiveMenu(result.name)
+          return result
+        }}
+        onDelete={() => {
+          if (activeMenu) bill.deleteMenu(activeMenu)
+          setActiveMenu(null)
+        }}
       />
 
       <PeoplePopup
@@ -362,6 +372,16 @@ export default function App() {
         onToggleMenu={(menuName) =>
           activePerson && bill.toggleMenuPerson(menuName, activePerson)
         }
+        onRename={(newName) => {
+          if (!activePerson) return { ok: false, reason: 'missing' }
+          const result = bill.renamePerson(activePerson, newName)
+          if (result.ok && result.name) setActivePerson(result.name)
+          return result
+        }}
+        onDelete={() => {
+          if (activePerson) bill.deletePerson(activePerson)
+          setActivePerson(null)
+        }}
       />
     </div>
   )

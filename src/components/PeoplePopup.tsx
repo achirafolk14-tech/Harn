@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { MenusMap, Person } from '../types'
 
 type Props = {
@@ -7,6 +8,8 @@ type Props = {
   menus: MenusMap
   onClose: () => void
   onToggleMenu: (menuName: string) => void
+  onRename: (newName: string) => { ok: boolean; reason?: string; name?: string }
+  onDelete: () => void
 }
 
 export function PeoplePopup({
@@ -16,17 +19,61 @@ export function PeoplePopup({
   menus,
   onClose,
   onToggleMenu,
+  onRename,
+  onDelete,
 }: Props) {
+  const [editName, setEditName] = useState(personName)
+
+  useEffect(() => {
+    if (open) setEditName(personName)
+  }, [open, personName])
+
   if (!open || !person) return null
+
+  const commitRename = () => {
+    const result = onRename(editName)
+    if (!result.ok) {
+      if (result.reason === 'exists') alert('ชื่อนี้มีแล้ว')
+      else if (result.reason === 'empty') alert('กรุณาระบุชื่อ')
+      setEditName(personName)
+      return false
+    }
+    if (result.name) setEditName(result.name)
+    return true
+  }
+
+  const handleDone = () => {
+    if (!commitRename()) return
+    onClose()
+  }
+
+  const handleDelete = () => {
+    if (!window.confirm(`ลบชื่อ "${personName}" หรือไม่?`)) return
+    onDelete()
+    onClose()
+  }
 
   return (
     <>
-      <div className="overlay" onClick={onClose} />
+      <div className="overlay" onClick={handleDone} />
       <div className="popup-wrap">
         <div className="popup">
           <div className="popup__head">
             <div className="popup__label">ยอดชำระ</div>
-            <div className="popup__title">{personName}</div>
+            <input
+              className="popup__title-input"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitRename()
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
+              placeholder="ชื่อคน"
+            />
           </div>
 
           <div className="list-head">
@@ -65,9 +112,14 @@ export function PeoplePopup({
             <strong>{person.amount}</strong>
           </div>
 
-          <button type="button" className="btn btn--primary" onClick={onClose}>
-            ตกลง
-          </button>
+          <div className="popup__actions">
+            <button type="button" className="btn btn--danger" onClick={handleDelete}>
+              ลบชื่อ
+            </button>
+            <button type="button" className="btn btn--primary" onClick={handleDone}>
+              ตกลง
+            </button>
+          </div>
         </div>
       </div>
     </>

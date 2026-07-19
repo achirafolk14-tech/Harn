@@ -127,6 +127,95 @@ export function useBill() {
     })
   }, [])
 
+  const renameMenu = useCallback((oldName: string, newName: string) => {
+    const trimmed = newName.trim()
+    if (!trimmed) return { ok: false as const, reason: 'empty' as const }
+    if (trimmed === oldName) return { ok: true as const, name: trimmed }
+    if (menus[trimmed]) return { ok: false as const, reason: 'exists' as const }
+    if (!menus[oldName]) return { ok: false as const, reason: 'missing' as const }
+
+    setMenus((prev) => {
+      const current = prev[oldName]
+      if (!current) return prev
+      const next: MenusMap = {}
+      for (const [name, menu] of Object.entries(prev)) {
+        if (name === oldName) next[trimmed] = current
+        else next[name] = menu
+      }
+      return next
+    })
+    return { ok: true as const, name: trimmed }
+  }, [menus])
+
+  const deleteMenu = useCallback((menuName: string) => {
+    setMenus((prev) => {
+      if (!prev[menuName]) return prev
+      const next = { ...prev }
+      delete next[menuName]
+      setPeople((p) => recomputeAmounts(next, p))
+      return next
+    })
+  }, [])
+
+  const renamePerson = useCallback((oldName: string, newName: string) => {
+    const trimmed = newName.trim()
+    if (!trimmed) return { ok: false as const, reason: 'empty' as const }
+    if (trimmed === oldName) return { ok: true as const, name: trimmed }
+    if (people[trimmed]) return { ok: false as const, reason: 'exists' as const }
+    if (!people[oldName]) return { ok: false as const, reason: 'missing' as const }
+
+    setMenus((prevMenus) => {
+      const nextMenus: MenusMap = {}
+      for (const [name, menu] of Object.entries(prevMenus)) {
+        nextMenus[name] = {
+          ...menu,
+          paidBy: menu.paidBy === oldName ? trimmed : menu.paidBy,
+          people: menu.people.map((p) => (p === oldName ? trimmed : p)).sort(),
+        }
+      }
+      const updatedMenus = withUpdatedPerPerson(nextMenus)
+
+      setPeople((prevPeople) => {
+        const current = prevPeople[oldName]
+        if (!current) return prevPeople
+        const nextPeople: PeopleMap = {}
+        for (const [name, person] of Object.entries(prevPeople)) {
+          if (name === oldName) {
+            nextPeople[trimmed] = { ...current, hue: nameToHue(trimmed) }
+          } else {
+            nextPeople[name] = person
+          }
+        }
+        return recomputeAmounts(updatedMenus, nextPeople)
+      })
+
+      return updatedMenus
+    })
+
+    return { ok: true as const, name: trimmed }
+  }, [people])
+
+  const deletePerson = useCallback((personName: string) => {
+    setMenus((prev) => {
+      const next: MenusMap = {}
+      for (const [name, menu] of Object.entries(prev)) {
+        next[name] = {
+          ...menu,
+          paidBy: menu.paidBy === personName ? '' : menu.paidBy,
+          people: menu.people.filter((p) => p !== personName),
+        }
+      }
+      const updated = withUpdatedPerPerson(next)
+      setPeople((p) => {
+        if (!p[personName]) return recomputeAmounts(updated, p)
+        const nextPeople = { ...p }
+        delete nextPeople[personName]
+        return recomputeAmounts(updated, nextPeople)
+      })
+      return updated
+    })
+  }, [])
+
   const togglePaid = useCallback((personName: string) => {
     setPeople((prev) => {
       const current = prev[personName]
@@ -175,6 +264,10 @@ export function useBill() {
     toggleMenuPerson,
     selectAllPeopleForMenu,
     setMenuPaidBy,
+    renameMenu,
+    deleteMenu,
+    renamePerson,
+    deletePerson,
     togglePaid,
     clearMenus,
     clearPeople,

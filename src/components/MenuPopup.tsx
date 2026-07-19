@@ -8,11 +8,13 @@ type Props = {
   menu: MenuItem | null
   people: PeopleMap
   onClose: () => void
-  onPriceChange: (price: number) => void
+  onPriceChange: (menuName: string, price: number) => void
   onTogglePerson: (personName: string) => void
   onSelectAll: () => void
   onSetPaidBy: (personName: string) => void
   onAddPerson: (name: string) => boolean
+  onRename: (newName: string) => { ok: boolean; reason?: string; name?: string }
+  onDelete: () => void
 }
 
 export function MenuPopup({
@@ -26,14 +28,18 @@ export function MenuPopup({
   onSelectAll,
   onSetPaidBy,
   onAddPerson,
+  onRename,
+  onDelete,
 }: Props) {
   const [priceText, setPriceText] = useState('0')
   const [calOpen, setCalOpen] = useState(false)
   const [newPerson, setNewPerson] = useState('')
+  const [editName, setEditName] = useState(menuName)
 
   useEffect(() => {
     if (open && menu) {
       setPriceText(String(menu.price || 0))
+      setEditName(menuName)
       setCalOpen(true)
     } else {
       setCalOpen(false)
@@ -53,14 +59,37 @@ export function MenuPopup({
     setNewPerson('')
   }
 
+  const commitRename = (): string | null => {
+    const result = onRename(editName)
+    if (!result.ok) {
+      if (result.reason === 'exists') alert('รายการนี้มีแล้ว')
+      else if (result.reason === 'empty') alert('กรุณาระบุชื่อรายการ')
+      setEditName(menuName)
+      return null
+    }
+    const name = result.name ?? menuName
+    setEditName(name)
+    return name
+  }
+
   const handleSubmitPrice = (value: number) => {
-    onPriceChange(value)
+    const name = commitRename() ?? menuName
+    onPriceChange(name, value)
     setPriceText(String(value))
   }
 
   const handleDone = () => {
+    const name = commitRename()
+    if (!name) return
     const n = Math.ceil(Number(priceText) || 0)
-    onPriceChange(n)
+    onPriceChange(name, n)
+    setCalOpen(false)
+    onClose()
+  }
+
+  const handleDelete = () => {
+    if (!window.confirm(`ลบรายการ "${menuName}" หรือไม่?`)) return
+    onDelete()
     setCalOpen(false)
     onClose()
   }
@@ -74,7 +103,20 @@ export function MenuPopup({
         <div className="popup">
           <div className="popup__head">
             <div className="popup__label">รายการ</div>
-            <div className="popup__title">{menuName}</div>
+            <input
+              className="popup__title-input"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitRename()
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
+              placeholder="ชื่อรายการ"
+            />
           </div>
 
           <input
@@ -149,9 +191,14 @@ export function MenuPopup({
             </button>
           </form>
 
-          <button type="button" className="btn btn--primary" onClick={handleDone}>
-            ตกลง
-          </button>
+          <div className="popup__actions">
+            <button type="button" className="btn btn--danger" onClick={handleDelete}>
+              ลบรายการ
+            </button>
+            <button type="button" className="btn btn--primary" onClick={handleDone}>
+              ตกลง
+            </button>
+          </div>
         </div>
       </div>
 
