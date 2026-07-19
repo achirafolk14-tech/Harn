@@ -7,6 +7,24 @@
   color: #1a1a1a;
 }
 
+.view-banner {
+  background: #e8f4fc;
+  color: #0b5278;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #c5e3f5;
+}
+
+.boot-msg {
+  margin: 0;
+  padding: 2.5rem 1.25rem;
+  text-align: center;
+  color: #555;
+  font-size: 0.95rem;
+}
+
 .card {
   margin: 0 auto;
   width: 100%;
@@ -45,6 +63,12 @@
   padding: 0;
   color: #03a9f4;
   min-width: 64px;
+}
+
+.qr-btn--static,
+.qr-btn:disabled {
+  cursor: default;
+  opacity: 1;
 }
 
 .qr-btn__label {
@@ -213,6 +237,20 @@
 
 .person-name--paid .tag {
   display: inline-block;
+}
+
+.person-name--static {
+  cursor: default;
+}
+
+.chip--static,
+.chip--static:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.menu-check--static {
+  cursor: default;
 }
 
 .icon-btn {

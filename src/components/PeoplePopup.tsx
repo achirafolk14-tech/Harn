@@ -6,6 +6,7 @@ type Props = {
   personName: string
   person: Person | null
   menus: MenusMap
+  readOnly?: boolean
   onClose: () => void
   onToggleMenu: (menuName: string) => void
   onRename: (newName: string) => { ok: boolean; reason?: string; name?: string }
@@ -17,6 +18,7 @@ export function PeoplePopup({
   personName,
   person,
   menus,
+  readOnly = false,
   onClose,
   onToggleMenu,
   onRename,
@@ -31,6 +33,7 @@ export function PeoplePopup({
   if (!open || !person) return null
 
   const commitRename = () => {
+    if (readOnly) return true
     const result = onRename(editName)
     if (!result.ok) {
       if (result.reason === 'exists') alert('ชื่อนี้มีแล้ว')
@@ -48,6 +51,7 @@ export function PeoplePopup({
   }
 
   const handleDelete = () => {
+    if (readOnly) return
     if (!window.confirm(`ลบชื่อ "${personName}" หรือไม่?`)) return
     onDelete()
     onClose()
@@ -60,20 +64,24 @@ export function PeoplePopup({
         <div className="popup">
           <div className="popup__head">
             <div className="popup__label">ยอดชำระ</div>
-            <input
-              className="popup__title-input"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onBlur={commitRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitRename()
-                  ;(e.target as HTMLInputElement).blur()
-                }
-              }}
-              placeholder="ชื่อคน"
-            />
+            {readOnly ? (
+              <h2 className="popup__title">{personName}</h2>
+            ) : (
+              <input
+                className="popup__title-input"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commitRename()
+                    ;(e.target as HTMLInputElement).blur()
+                  }
+                }}
+                placeholder="ชื่อคน"
+              />
+            )}
           </div>
 
           <div className="list-head">
@@ -88,13 +96,21 @@ export function PeoplePopup({
               const share = selected ? menu.perPerson : 0
               return (
                 <div key={menuName} className="list-row">
-                  <button
-                    type="button"
-                    className={`menu-check ${selected ? 'menu-check--on' : ''}`}
-                    onClick={() => onToggleMenu(menuName)}
-                  >
-                    <span>{selected ? '✓' : '+'}</span> {menuName}
-                  </button>
+                  {readOnly ? (
+                    <div
+                      className={`menu-check menu-check--static ${selected ? 'menu-check--on' : ''}`}
+                    >
+                      <span>{selected ? '✓' : '·'}</span> {menuName}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={`menu-check ${selected ? 'menu-check--on' : ''}`}
+                      onClick={() => onToggleMenu(menuName)}
+                    >
+                      <span>{selected ? '✓' : '+'}</span> {menuName}
+                    </button>
+                  )}
                   <span className="col-price muted">{menu.price}</span>
                   <span className="col-share" style={{ opacity: selected ? 1 : 0.35 }}>
                     {share}
@@ -113,11 +129,13 @@ export function PeoplePopup({
           </div>
 
           <div className="popup__actions">
-            <button type="button" className="btn btn--danger" onClick={handleDelete}>
-              ลบชื่อ
-            </button>
+            {!readOnly && (
+              <button type="button" className="btn btn--danger" onClick={handleDelete}>
+                ลบชื่อ
+              </button>
+            )}
             <button type="button" className="btn btn--primary" onClick={handleDone}>
-              ตกลง
+              {readOnly ? 'ปิด' : 'ตกลง'}
             </button>
           </div>
         </div>

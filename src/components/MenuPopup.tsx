@@ -7,6 +7,7 @@ type Props = {
   menuName: string
   menu: MenuItem | null
   people: PeopleMap
+  readOnly?: boolean
   onClose: () => void
   onPriceChange: (menuName: string, price: number) => void
   onTogglePerson: (personName: string) => void
@@ -22,6 +23,7 @@ export function MenuPopup({
   menuName,
   menu,
   people,
+  readOnly = false,
   onClose,
   onPriceChange,
   onTogglePerson,
@@ -40,16 +42,17 @@ export function MenuPopup({
     if (open && menu) {
       setPriceText(String(menu.price || 0))
       setEditName(menuName)
-      setCalOpen(true)
+      setCalOpen(!readOnly)
     } else {
       setCalOpen(false)
     }
-  }, [open, menuName, menu])
+  }, [open, menuName, menu, readOnly])
 
   if (!open || !menu) return null
 
   const submitPerson = (e: FormEvent) => {
     e.preventDefault()
+    if (readOnly) return
     const name = newPerson.trim()
     if (!name) return
     onAddPerson(name)
@@ -60,6 +63,7 @@ export function MenuPopup({
   }
 
   const commitRename = (): string | null => {
+    if (readOnly) return menuName
     const result = onRename(editName)
     if (!result.ok) {
       if (result.reason === 'exists') alert('รายการนี้มีแล้ว')
@@ -73,12 +77,17 @@ export function MenuPopup({
   }
 
   const handleSubmitPrice = (value: number) => {
+    if (readOnly) return
     const name = commitRename() ?? menuName
     onPriceChange(name, value)
     setPriceText(String(value))
   }
 
   const handleDone = () => {
+    if (readOnly) {
+      onClose()
+      return
+    }
     const name = commitRename()
     if (!name) return
     const n = Math.ceil(Number(priceText) || 0)
@@ -88,6 +97,7 @@ export function MenuPopup({
   }
 
   const handleDelete = () => {
+    if (readOnly) return
     if (!window.confirm(`ลบรายการ "${menuName}" หรือไม่?`)) return
     onDelete()
     setCalOpen(false)
@@ -99,24 +109,28 @@ export function MenuPopup({
   return (
     <>
       <div className="overlay" onClick={handleDone} />
-      <div className={`popup-wrap ${calOpen ? 'popup-wrap--with-cal' : ''}`}>
+      <div className={`popup-wrap ${calOpen && !readOnly ? 'popup-wrap--with-cal' : ''}`}>
         <div className="popup">
           <div className="popup__head">
             <div className="popup__label">รายการ</div>
-            <input
-              className="popup__title-input"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onBlur={commitRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitRename()
-                  ;(e.target as HTMLInputElement).blur()
-                }
-              }}
-              placeholder="ชื่อรายการ"
-            />
+            {readOnly ? (
+              <h2 className="popup__title">{menuName}</h2>
+            ) : (
+              <input
+                className="popup__title-input"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commitRename()
+                    ;(e.target as HTMLInputElement).blur()
+                  }
+                }}
+                placeholder="ชื่อรายการ"
+              />
+            )}
           </div>
 
           <input
@@ -124,7 +138,9 @@ export function MenuPopup({
             value={priceText}
             readOnly
             placeholder="ระบุราคา"
-            onClick={() => setCalOpen(true)}
+            onClick={() => {
+              if (!readOnly) setCalOpen(true)
+            }}
           />
 
           <div className="popup__section">
@@ -139,16 +155,19 @@ export function MenuPopup({
                   <button
                     key={`payer-${name}`}
                     type="button"
-                    className={`chip chip--payer ${selected ? 'chip--payer-on' : ''}`}
+                    className={`chip chip--payer ${selected ? 'chip--payer-on' : ''} ${readOnly ? 'chip--static' : ''}`}
                     style={{ ['--hue' as string]: person.hue }}
-                    onClick={() => onSetPaidBy(name)}
+                    onClick={() => {
+                      if (!readOnly) onSetPaidBy(name)
+                    }}
+                    disabled={readOnly}
                   >
                     <span>{selected ? '✓' : '○'}</span> {name}
                   </button>
                 )
               })}
               {personEntries.length === 0 && (
-                <p className="empty empty--sm">เพิ่มชื่อก่อน แล้วค่อยเลือกคนจ่ายเงิน</p>
+                <p className="empty empty--sm">ยังไม่มีชื่อคน</p>
               )}
             </div>
           </div>
@@ -165,9 +184,12 @@ export function MenuPopup({
                   <button
                     key={name}
                     type="button"
-                    className={`chip ${selected ? 'chip--on' : ''}`}
+                    className={`chip ${selected ? 'chip--on' : ''} ${readOnly ? 'chip--static' : ''}`}
                     style={{ ['--hue' as string]: person.hue }}
-                    onClick={() => onTogglePerson(name)}
+                    onClick={() => {
+                      if (!readOnly) onTogglePerson(name)
+                    }}
+                    disabled={readOnly}
                   >
                     <span>{selected ? '✓' : '+'}</span> {name}
                   </button>
@@ -175,40 +197,48 @@ export function MenuPopup({
               })}
             </div>
 
-            <button type="button" className="btn btn--outline" onClick={onSelectAll}>
-              + เลือกทุกคน
-            </button>
+            {!readOnly && (
+              <button type="button" className="btn btn--outline" onClick={onSelectAll}>
+                + เลือกทุกคน
+              </button>
+            )}
           </div>
 
-          <form className="inline-form" onSubmit={submitPerson}>
-            <input
-              value={newPerson}
-              onChange={(e) => setNewPerson(e.target.value)}
-              placeholder="เพิ่มชื่อคน"
-            />
-            <button type="submit" className="btn btn--grey">
-              เพิ่ม
-            </button>
-          </form>
+          {!readOnly && (
+            <form className="inline-form" onSubmit={submitPerson}>
+              <input
+                value={newPerson}
+                onChange={(e) => setNewPerson(e.target.value)}
+                placeholder="เพิ่มชื่อคน"
+              />
+              <button type="submit" className="btn btn--grey">
+                เพิ่ม
+              </button>
+            </form>
+          )}
 
           <div className="popup__actions">
-            <button type="button" className="btn btn--danger" onClick={handleDelete}>
-              ลบรายการ
-            </button>
+            {!readOnly && (
+              <button type="button" className="btn btn--danger" onClick={handleDelete}>
+                ลบรายการ
+              </button>
+            )}
             <button type="button" className="btn btn--primary" onClick={handleDone}>
-              ตกลง
+              {readOnly ? 'ปิด' : 'ตกลง'}
             </button>
           </div>
         </div>
       </div>
 
-      <Calculator
-        open={calOpen}
-        value={priceText}
-        onChange={setPriceText}
-        onSubmit={handleSubmitPrice}
-        onClose={() => setCalOpen(false)}
-      />
+      {!readOnly && (
+        <Calculator
+          open={calOpen}
+          value={priceText}
+          onChange={setPriceText}
+          onSubmit={handleSubmitPrice}
+          onClose={() => setCalOpen(false)}
+        />
+      )}
     </>
   )
 }

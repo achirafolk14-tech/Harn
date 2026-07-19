@@ -44,9 +44,16 @@ function longShareUrl(data: BillData): string {
   return `${PUBLIC_SHARE_ORIGIN}/?b=${encodeBill(data)}`
 }
 
+function isOpenedAsSharedLink(): boolean {
+  if (extractShareIdFromPath(window.location.pathname)) return true
+  const params = new URLSearchParams(window.location.search)
+  return Boolean(params.get('b') || params.get('bill'))
+}
+
 export function useBill() {
   const seed = initialBillSync()
-  const openedFromShare = Boolean(extractShareIdFromPath(window.location.pathname))
+  const openedFromPath = Boolean(extractShareIdFromPath(window.location.pathname))
+  const isViewOnly = isOpenedAsSharedLink()
   const [menus, setMenus] = useState<MenusMap>(() => seed.menus)
   const [people, setPeople] = useState<PeopleMap>(() => seed.people)
   const [qrId, setQrId] = useState(() => seed.qrId)
@@ -59,23 +66,24 @@ export function useBill() {
     return id ? shareUrlFromId(id) : null
   })
   const [shareLoading, setShareLoading] = useState(false)
-  const [bootLoading, setBootLoading] = useState(() => openedFromShare)
+  const [bootLoading, setBootLoading] = useState(() => openedFromPath)
   /** มีการแก้ไขในเครื่องนี้แล้ว — ถึงจะเขียนขึ้น Supabase */
-  const dirtyRef = useRef(!openedFromShare)
+  const dirtyRef = useRef(!isViewOnly)
   const lastSyncedPayloadRef = useRef<string | null>(null)
 
   const markDirty = useCallback(() => {
+    if (isViewOnly) return
     dirtyRef.current = true
-  }, [])
+  }, [isViewOnly])
 
   const persist = useCallback((nextMenus: MenusMap, nextPeople: PeopleMap, nextQr: string) => {
     saveToStorage({ menus: nextMenus, people: nextPeople, qrId: nextQr })
   }, [])
 
   useEffect(() => {
-    if (bootLoading) return
+    if (bootLoading || isViewOnly) return
     persist(menus, people, qrId)
-  }, [menus, people, qrId, persist, bootLoading])
+  }, [menus, people, qrId, persist, bootLoading, isViewOnly])
 
   const applyRemoteBill = useCallback((id: string, data: BillData) => {
     // คนที่แค่เปิดลิงก์ดู — ยังไม่ถือว่าเป็นเจ้าของ (ไม่ saveShareId)
@@ -197,6 +205,9 @@ export function useBill() {
   const isShortShare = Boolean(shortShareUrl?.includes('/s/'))
 
   const ensureShortShareUrl = useCallback(async () => {
+    if (isViewOnly) {
+      return shortShareUrl ?? window.location.href
+    }
     const data = { menus, people, qrId }
     const payload = encodeBill(data)
     if (shortShareUrl?.includes('/s/') && lastSyncedPayloadRef.current === payload) {
@@ -220,9 +231,10 @@ export function useBill() {
     } finally {
       setShareLoading(false)
     }
-  }, [shortShareUrl, menus, people, qrId, shareId, markDirty])
+  }, [isViewOnly, shortShareUrl, menus, people, qrId, shareId, markDirty])
 
   const addPerson = useCallback((name: string) => {
+    if (isViewOnly) return false
     const trimmed = name.trim()
     if (!trimmed || people[trimmed]) return false
     markDirty()
@@ -231,9 +243,10 @@ export function useBill() {
       [trimmed]: { amount: 0, paid: false, hue: nameToHue(trimmed) },
     }))
     return true
-  }, [people, markDirty])
+  }, [people, markDirty, isViewOnly])
 
   const addMenu = useCallback((name: string) => {
+    if (isViewOnly) return { ok: false as const, reason: 'readonly' as const }
     const trimmed = name.trim()
     if (!trimmed) return { ok: false as const, reason: 'empty' as const }
     if (menus[trimmed]) return { ok: false as const, reason: 'exists' as const }
@@ -243,9 +256,10 @@ export function useBill() {
       [trimmed]: { price: 0, people: [], perPerson: 0, paidBy: '' },
     }))
     return { ok: true as const, name: trimmed }
-  }, [menus, markDirty])
+  }, [menus, markDirty, isViewOnly])
 
   const updateMenuPrice = useCallback((menuName: string, price: number) => {
+    if (isViewOnly) return
     markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
@@ -257,9 +271,10 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const toggleMenuPerson = useCallback((menuName: string, personName: string) => {
+    if (isViewOnly) return
     markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
@@ -275,9 +290,10 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const selectAllPeopleForMenu = useCallback((menuName: string) => {
+    if (isViewOnly) return
     markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
@@ -290,9 +306,10 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [people, markDirty])
+  }, [people, markDirty, isViewOnly])
 
   const setMenuPaidBy = useCallback((menuName: string, personName: string) => {
+    if (isViewOnly) return
     markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
@@ -303,9 +320,10 @@ export function useBill() {
         [menuName]: { ...current, paidBy: nextPaidBy },
       }
     })
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const renameMenu = useCallback((oldName: string, newName: string) => {
+    if (isViewOnly) return { ok: false as const, reason: 'readonly' as const }
     const trimmed = newName.trim()
     if (!trimmed) return { ok: false as const, reason: 'empty' as const }
     if (trimmed === oldName) return { ok: true as const, name: trimmed }
@@ -324,9 +342,10 @@ export function useBill() {
       return next
     })
     return { ok: true as const, name: trimmed }
-  }, [menus, markDirty])
+  }, [menus, markDirty, isViewOnly])
 
   const deleteMenu = useCallback((menuName: string) => {
+    if (isViewOnly) return
     markDirty()
     setMenus((prev) => {
       if (!prev[menuName]) return prev
@@ -335,9 +354,10 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const renamePerson = useCallback((oldName: string, newName: string) => {
+    if (isViewOnly) return { ok: false as const, reason: 'readonly' as const }
     const trimmed = newName.trim()
     if (!trimmed) return { ok: false as const, reason: 'empty' as const }
     if (trimmed === oldName) return { ok: true as const, name: trimmed }
@@ -374,9 +394,10 @@ export function useBill() {
     })
 
     return { ok: true as const, name: trimmed }
-  }, [people, markDirty])
+  }, [people, markDirty, isViewOnly])
 
   const deletePerson = useCallback((personName: string) => {
+    if (isViewOnly) return
     markDirty()
     setMenus((prev) => {
       const next: MenusMap = {}
@@ -396,9 +417,10 @@ export function useBill() {
       })
       return updated
     })
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const togglePaid = useCallback((personName: string) => {
+    if (isViewOnly) return
     markDirty()
     setPeople((prev) => {
       const current = prev[personName]
@@ -408,15 +430,17 @@ export function useBill() {
         [personName]: { ...current, paid: !current.paid },
       }
     })
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const clearMenus = useCallback(() => {
+    if (isViewOnly) return
     markDirty()
     setMenus({})
     setPeople((prev) => recomputeAmounts({}, prev))
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const clearPeople = useCallback(() => {
+    if (isViewOnly) return
     markDirty()
     setPeople({})
     setMenus((prev) => {
@@ -426,21 +450,23 @@ export function useBill() {
       }
       return next
     })
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const setPromptPay = useCallback((id: string) => {
+    if (isViewOnly) return
     markDirty()
     setQrId(id.trim())
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const replaceBill = useCallback((data: BillData) => {
+    if (isViewOnly) return
     markDirty()
     const nextMenus = withUpdatedPerPerson(data.menus)
     const nextPeople = recomputeAmounts(nextMenus, data.people)
     setMenus(nextMenus)
     setPeople(nextPeople)
     setQrId(data.qrId || '')
-  }, [markDirty])
+  }, [markDirty, isViewOnly])
 
   const getBillData = useCallback(
     (): BillData => ({ menus, people, qrId }),
@@ -461,6 +487,7 @@ export function useBill() {
     shareLoading,
     bootLoading,
     isShortShare,
+    isViewOnly,
     ensureShortShareUrl,
     addPerson,
     addMenu,
