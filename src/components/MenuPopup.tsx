@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { MenuItem, PeopleMap } from '../types'
-import { Calculator } from './Calculator'
 
 type Props = {
   open: boolean
@@ -16,6 +15,14 @@ type Props = {
   onAddPerson: (name: string) => boolean
   onRename: (newName: string) => { ok: boolean; reason?: string; name?: string }
   onDelete: () => void
+}
+
+function sanitizePrice(raw: string): string {
+  // อนุญาตตัวเลขกับจุดทศนิยมจุดเดียว
+  const cleaned = raw.replace(/[^\d.]/g, '')
+  const dot = cleaned.indexOf('.')
+  if (dot === -1) return cleaned
+  return cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, '')
 }
 
 export function MenuPopup({
@@ -34,7 +41,6 @@ export function MenuPopup({
   onDelete,
 }: Props) {
   const [priceText, setPriceText] = useState('0')
-  const [calOpen, setCalOpen] = useState(false)
   const [newPerson, setNewPerson] = useState('')
   const [editName, setEditName] = useState(menuName)
 
@@ -42,11 +48,8 @@ export function MenuPopup({
     if (open && menu) {
       setPriceText(String(menu.price || 0))
       setEditName(menuName)
-      setCalOpen(!readOnly)
-    } else {
-      setCalOpen(false)
     }
-  }, [open, menuName, menu, readOnly])
+  }, [open, menuName, menu])
 
   if (!open || !menu) return null
 
@@ -76,11 +79,11 @@ export function MenuPopup({
     return name
   }
 
-  const handleSubmitPrice = (value: number) => {
+  const commitPrice = (name = menuName) => {
     if (readOnly) return
-    const name = commitRename() ?? menuName
-    onPriceChange(name, value)
-    setPriceText(String(value))
+    const n = Math.ceil(Number(priceText) || 0)
+    setPriceText(String(n))
+    onPriceChange(name, n)
   }
 
   const handleDone = () => {
@@ -90,9 +93,7 @@ export function MenuPopup({
     }
     const name = commitRename()
     if (!name) return
-    const n = Math.ceil(Number(priceText) || 0)
-    onPriceChange(name, n)
-    setCalOpen(false)
+    commitPrice(name)
     onClose()
   }
 
@@ -100,7 +101,6 @@ export function MenuPopup({
     if (readOnly) return
     if (!window.confirm(`ลบรายการ "${menuName}" หรือไม่?`)) return
     onDelete()
-    setCalOpen(false)
     onClose()
   }
 
@@ -109,7 +109,7 @@ export function MenuPopup({
   return (
     <>
       <div className="overlay" onClick={handleDone} />
-      <div className={`popup-wrap ${calOpen && !readOnly ? 'popup-wrap--with-cal' : ''}`}>
+      <div className="popup-wrap">
         <div className="popup">
           <div className="popup__head">
             <div className="popup__label">รายการ</div>
@@ -135,11 +135,23 @@ export function MenuPopup({
 
           <input
             className="price-input"
+            type="text"
+            inputMode="decimal"
+            enterKeyHint="done"
             value={priceText}
-            readOnly
+            readOnly={readOnly}
             placeholder="ระบุราคา"
-            onClick={() => {
-              if (!readOnly) setCalOpen(true)
+            onChange={(e) => {
+              if (!readOnly) setPriceText(sanitizePrice(e.target.value))
+            }}
+            onBlur={() => {
+              if (!readOnly) commitPrice()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                ;(e.target as HTMLInputElement).blur()
+              }
             }}
           />
 
@@ -229,16 +241,6 @@ export function MenuPopup({
           </div>
         </div>
       </div>
-
-      {!readOnly && (
-        <Calculator
-          open={calOpen}
-          value={priceText}
-          onChange={setPriceText}
-          onSubmit={handleSubmitPrice}
-          onClose={() => setCalOpen(false)}
-        />
-      )}
     </>
   )
 }
