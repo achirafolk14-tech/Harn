@@ -275,6 +275,7 @@ export function saveToStorage(data: BillData) {
   localStorage.setItem('bill_qr', data.qrId)
 }
 
+
 /** รูปแบบไฟล์ส่งออก (อ่านง่าย / นำเข้ากลับได้) */
 export type ExportFile = {
   v: 1

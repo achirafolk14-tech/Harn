@@ -13,9 +13,12 @@ import {
 } from '../lib/bill'
 import { PUBLIC_SHARE_ORIGIN } from '../lib/supabase'
 import {
-  createShortShareUrl,
   extractShareIdFromPath,
+  loadSavedShareId,
   loadShareById,
+  saveShareId,
+  shareUrlFromId,
+  syncShortShareUrl,
 } from '../lib/shareStore'
 
 function initialBillSync(): BillData {
@@ -47,16 +50,18 @@ export function useBill() {
   const [people, setPeople] = useState<PeopleMap>(() => seed.people)
   const [qrId, setQrId] = useState(() => seed.qrId)
   const [tab, setTab] = useState<TabName>('menu')
+  const [shareId, setShareId] = useState<string | null>(() => {
+    return extractShareIdFromPath(window.location.pathname) || loadSavedShareId()
+  })
   const [shortShareUrl, setShortShareUrl] = useState<string | null>(() => {
-    const id = extractShareIdFromPath(window.location.pathname)
-    return id ? `${PUBLIC_SHARE_ORIGIN}/s/${id}` : null
+    const id = extractShareIdFromPath(window.location.pathname) || loadSavedShareId()
+    return id ? shareUrlFromId(id) : null
   })
   const [shareLoading, setShareLoading] = useState(false)
   const [bootLoading, setBootLoading] = useState(() =>
     Boolean(extractShareIdFromPath(window.location.pathname)),
   )
-  /** true เฉพาะตอนโหลดจาก /s/xxx เสร็จ เพื่อไม่สร้างลิงก์ซ้ำทันที */
-  const skipNextShortCreateRef = useRef(false)
+  const lastSyncedPayloadRef = useRef<string | null>(null)
 
   const persist = useCallback((nextMenus: MenusMap, nextPeople: PeopleMap, nextQr: string) => {
     saveToStorage({ menus: nextMenus, people: nextPeople, qrId: nextQr })
@@ -81,11 +86,13 @@ export function useBill() {
       .then((data) => {
         if (cancelled) return
         if (data) {
-          skipNextShortCreateRef.current = true
+          saveShareId(id)
+          setShareId(id)
+          setShortShareUrl(shareUrlFromId(id))
+          lastSyncedPayloadRef.current = encodeBill(data)
           setMenus(data.menus)
           setPeople(data.people)
           setQrId(data.qrId)
-          setShortShareUrl(`${PUBLIC_SHARE_ORIGIN}/s/${id}`)
         }
         setBootLoading(false)
       })
@@ -103,70 +110,83 @@ export function useBill() {
   const settlement = useMemo(() => computeSettlement(menus), [menus])
   const transfers = settlement.transfers
 
-  // สร้างลิงก์สั้นอัตโนมัติ → https://harn.vercel.app/s/xxxxxxx
+  // ลิงก์สั้นเดิมตลอด — แก้บิลแล้วอัปเดตข้อมูลใน id เดิม
   useEffect(() => {
     if (bootLoading) return
 
+    const data = { menus, people, qrId }
     const hasData =
       Object.keys(menus).length > 0 || Object.keys(people).length > 0 || Boolean(qrId)
 
     if (!hasData) {
-      setShortShareUrl(null)
       setShareLoading(false)
+      // คง shareId ไว้ เผื่อเพิ่มรายการใหม่แล้วยังใช้ลิงก์เดิม
       return
     }
 
-    // เปิดจาก /s/xxx อยู่แล้ว — ใช้ลิงก์เดิมก่อน จนกว่าจะแก้บิล
-    if (skipNextShortCreateRef.current) {
-      skipNextShortCreateRef.current = false
+    const payload = encodeBill(data)
+    if (lastSyncedPayloadRef.current === payload && shortShareUrl?.includes('/s/')) {
       setShareLoading(false)
       return
     }
 
     let cancelled = false
     setShareLoading(true)
-    setShortShareUrl(null)
 
     const timer = window.setTimeout(() => {
-      createShortShareUrl({ menus, people, qrId })
+      syncShortShareUrl(data, shareId)
         .then((url) => {
           if (cancelled) return
           if (url.includes('/s/')) {
+            const id = url.split('/s/')[1] || shareId
+            if (id) {
+              setShareId(id)
+              saveShareId(id)
+            }
+            lastSyncedPayloadRef.current = payload
             setShortShareUrl(url)
           } else {
-            setShortShareUrl(null)
-            console.warn('Short link fallback to long URL — check VITE_SUPABASE_* env')
+            console.warn('Short link fallback — check UPDATE policy on shares')
           }
           setShareLoading(false)
         })
         .catch(() => {
-          if (!cancelled) {
-            setShortShareUrl(null)
-            setShareLoading(false)
-          }
+          if (!cancelled) setShareLoading(false)
         })
-    }, 500)
+    }, 400)
 
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [menus, people, qrId, bootLoading])
+  }, [menus, people, qrId, bootLoading, shareId, shortShareUrl])
 
   const shareUrl = shortShareUrl ?? longShareUrl({ menus, people, qrId })
   const isShortShare = Boolean(shortShareUrl?.includes('/s/'))
 
   const ensureShortShareUrl = useCallback(async () => {
-    if (shortShareUrl?.includes('/s/')) return shortShareUrl
+    const data = { menus, people, qrId }
+    const payload = encodeBill(data)
+    if (shortShareUrl?.includes('/s/') && lastSyncedPayloadRef.current === payload) {
+      return shortShareUrl
+    }
     setShareLoading(true)
     try {
-      const url = await createShortShareUrl({ menus, people, qrId })
-      if (url.includes('/s/')) setShortShareUrl(url)
+      const url = await syncShortShareUrl(data, shareId)
+      if (url.includes('/s/')) {
+        const id = url.split('/s/')[1] || shareId
+        if (id) {
+          setShareId(id)
+          saveShareId(id)
+        }
+        lastSyncedPayloadRef.current = payload
+        setShortShareUrl(url)
+      }
       return url
     } finally {
       setShareLoading(false)
     }
-  }, [shortShareUrl, menus, people, qrId])
+  }, [shortShareUrl, menus, people, qrId, shareId])
 
   const addPerson = useCallback((name: string) => {
     const trimmed = name.trim()
