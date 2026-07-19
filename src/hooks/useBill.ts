@@ -46,6 +46,7 @@ function longShareUrl(data: BillData): string {
 
 export function useBill() {
   const seed = initialBillSync()
+  const openedFromShare = Boolean(extractShareIdFromPath(window.location.pathname))
   const [menus, setMenus] = useState<MenusMap>(() => seed.menus)
   const [people, setPeople] = useState<PeopleMap>(() => seed.people)
   const [qrId, setQrId] = useState(() => seed.qrId)
@@ -58,10 +59,14 @@ export function useBill() {
     return id ? shareUrlFromId(id) : null
   })
   const [shareLoading, setShareLoading] = useState(false)
-  const [bootLoading, setBootLoading] = useState(() =>
-    Boolean(extractShareIdFromPath(window.location.pathname)),
-  )
+  const [bootLoading, setBootLoading] = useState(() => openedFromShare)
+  /** มีการแก้ไขในเครื่องนี้แล้ว — ถึงจะเขียนขึ้น Supabase */
+  const dirtyRef = useRef(!openedFromShare)
   const lastSyncedPayloadRef = useRef<string | null>(null)
+
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true
+  }, [])
 
   const persist = useCallback((nextMenus: MenusMap, nextPeople: PeopleMap, nextQr: string) => {
     saveToStorage({ menus: nextMenus, people: nextPeople, qrId: nextQr })
@@ -72,7 +77,18 @@ export function useBill() {
     persist(menus, people, qrId)
   }, [menus, people, qrId, persist, bootLoading])
 
-  // โหลดจาก /s/:id (Supabase โปรเจกต์ harn เท่านั้น)
+  const applyRemoteBill = useCallback((id: string, data: BillData) => {
+    // คนที่แค่เปิดลิงก์ดู — ยังไม่ถือว่าเป็นเจ้าของ (ไม่ saveShareId)
+    setShareId(id)
+    setShortShareUrl(shareUrlFromId(id))
+    lastSyncedPayloadRef.current = encodeBill(data)
+    dirtyRef.current = false
+    setMenus(data.menus)
+    setPeople(data.people)
+    setQrId(data.qrId)
+  }, [])
+
+  // โหลดจาก /s/:id + รีเฟรชเมื่อกลับมาที่แท็บ (ถ้ายังไม่ได้แก้)
   useEffect(() => {
     const id = extractShareIdFromPath(window.location.pathname)
     if (!id) {
@@ -81,38 +97,53 @@ export function useBill() {
     }
 
     let cancelled = false
-    setBootLoading(true)
-    loadShareById(id)
-      .then((data) => {
-        if (cancelled) return
-        if (data) {
-          saveShareId(id)
-          setShareId(id)
-          setShortShareUrl(shareUrlFromId(id))
-          lastSyncedPayloadRef.current = encodeBill(data)
-          setMenus(data.menus)
-          setPeople(data.people)
-          setQrId(data.qrId)
-        }
-        setBootLoading(false)
-      })
-      .catch(() => {
-        if (!cancelled) setBootLoading(false)
-      })
+
+    const load = (isBoot: boolean) => {
+      if (dirtyRef.current && !isBoot) return
+      if (isBoot) setBootLoading(true)
+      loadShareById(id)
+        .then((data) => {
+          if (cancelled || !data) {
+            if (isBoot && !cancelled) setBootLoading(false)
+            return
+          }
+          // อย่าทับงานที่กำลังแก้ในเครื่อง
+          if (dirtyRef.current && !isBoot) return
+          applyRemoteBill(id, data)
+          if (isBoot) setBootLoading(false)
+        })
+        .catch(() => {
+          if (isBoot && !cancelled) setBootLoading(false)
+        })
+    }
+
+    load(true)
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load(false)
+    }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
 
     return () => {
       cancelled = true
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [])
+  }, [applyRemoteBill])
 
   const peopleCount = Object.keys(people).length
   const billTotal = useMemo(() => totalPrice(menus), [menus])
   const settlement = useMemo(() => computeSettlement(menus), [menus])
   const transfers = settlement.transfers
 
-  // ลิงก์สั้นเดิมตลอด — แก้บิลแล้วอัปเดตข้อมูลใน id เดิม
+  // เขียนขึ้นเซิร์ฟเวอร์เฉพาะตอนมีการแก้บิลในเครื่องนี้
   useEffect(() => {
     if (bootLoading) return
+    if (!dirtyRef.current) {
+      setShareLoading(false)
+      return
+    }
 
     const data = { menus, people, qrId }
     const hasData =
@@ -120,12 +151,12 @@ export function useBill() {
 
     if (!hasData) {
       setShareLoading(false)
-      // คง shareId ไว้ เผื่อเพิ่มรายการใหม่แล้วยังใช้ลิงก์เดิม
       return
     }
 
     const payload = encodeBill(data)
     if (lastSyncedPayloadRef.current === payload && shortShareUrl?.includes('/s/')) {
+      dirtyRef.current = false
       setShareLoading(false)
       return
     }
@@ -144,9 +175,10 @@ export function useBill() {
               saveShareId(id)
             }
             lastSyncedPayloadRef.current = payload
+            dirtyRef.current = false
             setShortShareUrl(url)
           } else {
-            console.warn('Short link fallback — check UPDATE policy on shares')
+            console.warn('Short link sync failed — check Supabase UPDATE policy')
           }
           setShareLoading(false)
         })
@@ -170,6 +202,7 @@ export function useBill() {
     if (shortShareUrl?.includes('/s/') && lastSyncedPayloadRef.current === payload) {
       return shortShareUrl
     }
+    markDirty()
     setShareLoading(true)
     try {
       const url = await syncShortShareUrl(data, shareId)
@@ -180,36 +213,40 @@ export function useBill() {
           saveShareId(id)
         }
         lastSyncedPayloadRef.current = payload
+        dirtyRef.current = false
         setShortShareUrl(url)
       }
       return url
     } finally {
       setShareLoading(false)
     }
-  }, [shortShareUrl, menus, people, qrId, shareId])
+  }, [shortShareUrl, menus, people, qrId, shareId, markDirty])
 
   const addPerson = useCallback((name: string) => {
     const trimmed = name.trim()
     if (!trimmed || people[trimmed]) return false
+    markDirty()
     setPeople((prev) => ({
       ...prev,
       [trimmed]: { amount: 0, paid: false, hue: nameToHue(trimmed) },
     }))
     return true
-  }, [people])
+  }, [people, markDirty])
 
   const addMenu = useCallback((name: string) => {
     const trimmed = name.trim()
     if (!trimmed) return { ok: false as const, reason: 'empty' as const }
     if (menus[trimmed]) return { ok: false as const, reason: 'exists' as const }
+    markDirty()
     setMenus((prev) => ({
       ...prev,
       [trimmed]: { price: 0, people: [], perPerson: 0, paidBy: '' },
     }))
     return { ok: true as const, name: trimmed }
-  }, [menus])
+  }, [menus, markDirty])
 
   const updateMenuPrice = useCallback((menuName: string, price: number) => {
+    markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
       if (!current) return prev
@@ -220,9 +257,10 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [])
+  }, [markDirty])
 
   const toggleMenuPerson = useCallback((menuName: string, personName: string) => {
+    markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
       if (!current) return prev
@@ -237,9 +275,10 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [])
+  }, [markDirty])
 
   const selectAllPeopleForMenu = useCallback((menuName: string) => {
+    markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
       if (!current) return prev
@@ -251,9 +290,10 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [people])
+  }, [people, markDirty])
 
   const setMenuPaidBy = useCallback((menuName: string, personName: string) => {
+    markDirty()
     setMenus((prev) => {
       const current = prev[menuName]
       if (!current) return prev
@@ -263,7 +303,7 @@ export function useBill() {
         [menuName]: { ...current, paidBy: nextPaidBy },
       }
     })
-  }, [])
+  }, [markDirty])
 
   const renameMenu = useCallback((oldName: string, newName: string) => {
     const trimmed = newName.trim()
@@ -272,6 +312,7 @@ export function useBill() {
     if (menus[trimmed]) return { ok: false as const, reason: 'exists' as const }
     if (!menus[oldName]) return { ok: false as const, reason: 'missing' as const }
 
+    markDirty()
     setMenus((prev) => {
       const current = prev[oldName]
       if (!current) return prev
@@ -283,9 +324,10 @@ export function useBill() {
       return next
     })
     return { ok: true as const, name: trimmed }
-  }, [menus])
+  }, [menus, markDirty])
 
   const deleteMenu = useCallback((menuName: string) => {
+    markDirty()
     setMenus((prev) => {
       if (!prev[menuName]) return prev
       const next = { ...prev }
@@ -293,7 +335,7 @@ export function useBill() {
       setPeople((p) => recomputeAmounts(next, p))
       return next
     })
-  }, [])
+  }, [markDirty])
 
   const renamePerson = useCallback((oldName: string, newName: string) => {
     const trimmed = newName.trim()
@@ -302,6 +344,7 @@ export function useBill() {
     if (people[trimmed]) return { ok: false as const, reason: 'exists' as const }
     if (!people[oldName]) return { ok: false as const, reason: 'missing' as const }
 
+    markDirty()
     setMenus((prevMenus) => {
       const nextMenus: MenusMap = {}
       for (const [name, menu] of Object.entries(prevMenus)) {
@@ -331,9 +374,10 @@ export function useBill() {
     })
 
     return { ok: true as const, name: trimmed }
-  }, [people])
+  }, [people, markDirty])
 
   const deletePerson = useCallback((personName: string) => {
+    markDirty()
     setMenus((prev) => {
       const next: MenusMap = {}
       for (const [name, menu] of Object.entries(prev)) {
@@ -352,9 +396,10 @@ export function useBill() {
       })
       return updated
     })
-  }, [])
+  }, [markDirty])
 
   const togglePaid = useCallback((personName: string) => {
+    markDirty()
     setPeople((prev) => {
       const current = prev[personName]
       if (!current) return prev
@@ -363,14 +408,16 @@ export function useBill() {
         [personName]: { ...current, paid: !current.paid },
       }
     })
-  }, [])
+  }, [markDirty])
 
   const clearMenus = useCallback(() => {
+    markDirty()
     setMenus({})
     setPeople((prev) => recomputeAmounts({}, prev))
-  }, [])
+  }, [markDirty])
 
   const clearPeople = useCallback(() => {
+    markDirty()
     setPeople({})
     setMenus((prev) => {
       const next: MenusMap = {}
@@ -379,19 +426,21 @@ export function useBill() {
       }
       return next
     })
-  }, [])
+  }, [markDirty])
 
   const setPromptPay = useCallback((id: string) => {
+    markDirty()
     setQrId(id.trim())
-  }, [])
+  }, [markDirty])
 
   const replaceBill = useCallback((data: BillData) => {
+    markDirty()
     const nextMenus = withUpdatedPerPerson(data.menus)
     const nextPeople = recomputeAmounts(nextMenus, data.people)
     setMenus(nextMenus)
     setPeople(nextPeople)
     setQrId(data.qrId || '')
-  }, [])
+  }, [markDirty])
 
   const getBillData = useCallback(
     (): BillData => ({ menus, people, qrId }),

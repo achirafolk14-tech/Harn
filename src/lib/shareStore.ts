@@ -119,6 +119,7 @@ export async function loadShareById(id: string): Promise<BillData | null> {
   const supabase = getSupabase()
   if (!supabase) return null
 
+  // ดึงใหม่ทุกครั้ง ไม่ใช้ของเก่าในแคช
   const { data, error } = await supabase
     .from('shares')
     .select('payload')
@@ -126,7 +127,7 @@ export async function loadShareById(id: string): Promise<BillData | null> {
     .maybeSingle()
 
   if (error || !data?.payload) return null
-  return decodeBill(data.payload)
+  return decodeBill(data.payload as string)
 }
 
 export function extractShareIdFromPath(pathname: string): string | null {
