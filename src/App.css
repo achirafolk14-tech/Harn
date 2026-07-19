@@ -15,6 +15,26 @@
   text-align: center;
   padding: 0.65rem 1rem;
   border-bottom: 1px solid #c5e3f5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.view-banner__cta {
+  display: inline-block;
+  background: #03a9f4;
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+}
+
+.view-banner__cta:hover {
+  background: #0288d1;
 }
 
 .boot-msg {
@@ -480,6 +500,81 @@
 
 .footer__accent {
   color: #ffc107;
+  text-decoration: none;
+}
+
+a.footer__accent:hover {
+  text-decoration: underline;
+}
+
+.footer__menu {
+  margin-top: 0.5rem !important;
+}
+
+.footer__link {
+  border: 0;
+  background: transparent;
+  color: #9aa3ad;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+}
+
+.footer__link:hover {
+  color: #ffc107;
+}
+
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.feedback-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.feedback-kind--on {
+  background: #e3f2fd !important;
+  color: #0277bd !important;
+}
+
+.feedback-textarea {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font: inherit;
+  font-size: 0.95rem;
+  resize: vertical;
+  min-height: 120px;
+  outline: none;
+}
+
+.feedback-textarea:focus {
+  border-color: #03a9f4;
+}
+
+.feedback-meta {
+  font-size: 0.75rem;
+  color: #999;
+  text-align: right;
+}
+
+.feedback-done {
+  text-align: center;
+  padding: 0.5rem 0 0.25rem;
+}
+
+.feedback-done p {
+  margin: 0 0 1rem;
+  color: #333;
 }
 
 /* Overlay / Popup */

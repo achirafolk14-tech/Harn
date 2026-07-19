@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/s/:id", "destination": "/index.html" },
+    { "source": "/admin/:token", "destination": "/index.html" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ]
 }

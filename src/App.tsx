@@ -5,6 +5,7 @@ import { MenuPopup } from './components/MenuPopup'
 import { PeoplePopup } from './components/PeoplePopup'
 import { SettlePanel } from './components/SettlePanel'
 import { ImportExport } from './components/ImportExport'
+import { FeedbackPopup } from './components/FeedbackPopup'
 import './App.css'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [activePerson, setActivePerson] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   const submitMenu = (e: FormEvent) => {
     e.preventDefault()
@@ -89,7 +91,10 @@ export default function App() {
       <main className="card">
         {viewOnly && (
           <div className="view-banner" role="status">
-            โหมดดูอย่างเดียว — แก้ได้เฉพาะเจ้าของบิล
+            <span>โหมดดูอย่างเดียว — แก้ได้เฉพาะเจ้าของบิล</span>
+            <a className="view-banner__cta" href="/">
+              สร้างบิลใหม่
+            </a>
           </div>
         )}
 
@@ -346,10 +351,26 @@ export default function App() {
 
       <footer className="footer">
         <p>*เศษทศนิยมจะถูกปัดขึ้นโดยอัตโนมัติ</p>
+        <p className="footer__menu">
+          <button type="button" className="footer__link" onClick={() => setFeedbackOpen(true)}>
+            รายงานปัญหา / แนะนำระบบ
+          </button>
+        </p>
         <p>
-          CheckBill <span className="footer__accent">หารค่าอาหาร</span>
+          พัฒนาโดย{' '}
+          <a
+            className="footer__accent"
+            href="https://lin.ee/Wd6wJSo1"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            APPTOOK
+          </a>{' '}
+          ขายยูทูปพรีเมี่ยมราคาถูก
         </p>
       </footer>
+
+      <FeedbackPopup open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
       <MenuPopup
         open={!!activeMenu}
