@@ -25,14 +25,14 @@ export async function createShortShareUrl(data: BillData): Promise<string> {
   if (!supabase) return longUrl
 
   for (let attempt = 0; attempt < 5; attempt++) {
-    const id = randomId(7)
+    const id = randomId(8)
     const { error } = await supabase.from('shares').insert({ id, payload })
     if (!error) {
       return `${PUBLIC_SHARE_ORIGIN}/s/${id}`
     }
     // 23505 = unique_violation → สุ่มใหม่
     if (error.code !== '23505') {
-      console.warn('createShortShareUrl failed', error.message)
+      console.warn('createShortShareUrl failed', error.code, error.message)
       return longUrl
     }
   }

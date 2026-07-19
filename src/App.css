@@ -321,6 +321,15 @@
   font-size: 0.75rem;
   color: #e57373;
   font-weight: 600;
+  line-height: 1.35;
+}
+
+.share__ok {
+  grid-column: 2;
+  margin: 0;
+  font-size: 0.75rem;
+  color: #43a047;
+  font-weight: 600;
 }
 
 .share__copy:disabled {

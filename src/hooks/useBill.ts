@@ -55,7 +55,8 @@ export function useBill() {
   const [bootLoading, setBootLoading] = useState(() =>
     Boolean(extractShareIdFromPath(window.location.pathname)),
   )
-  const skipShortClearRef = useRef(true)
+  /** true เฉพาะตอนโหลดจาก /s/xxx เสร็จ เพื่อไม่สร้างลิงก์ซ้ำทันที */
+  const skipNextShortCreateRef = useRef(false)
 
   const persist = useCallback((nextMenus: MenusMap, nextPeople: PeopleMap, nextQr: string) => {
     saveToStorage({ menus: nextMenus, people: nextPeople, qrId: nextQr })
@@ -80,7 +81,7 @@ export function useBill() {
       .then((data) => {
         if (cancelled) return
         if (data) {
-          skipShortClearRef.current = true
+          skipNextShortCreateRef.current = true
           setMenus(data.menus)
           setPeople(data.people)
           setQrId(data.qrId)
@@ -97,29 +98,70 @@ export function useBill() {
     }
   }, [])
 
-  // แก้บิลแล้วเคลียร์ลิงก์สั้นเก่า (ต้องสร้างใหม่ตอนคัดลอก)
-  useEffect(() => {
-    if (bootLoading) return
-    if (skipShortClearRef.current) {
-      skipShortClearRef.current = false
-      return
-    }
-    setShortShareUrl(null)
-  }, [menus, people, qrId, bootLoading])
-
   const peopleCount = Object.keys(people).length
   const billTotal = useMemo(() => totalPrice(menus), [menus])
   const settlement = useMemo(() => computeSettlement(menus), [menus])
   const transfers = settlement.transfers
 
+  // สร้างลิงก์สั้นอัตโนมัติ → https://harn.vercel.app/s/xxxxxxx
+  useEffect(() => {
+    if (bootLoading) return
+
+    const hasData =
+      Object.keys(menus).length > 0 || Object.keys(people).length > 0 || Boolean(qrId)
+
+    if (!hasData) {
+      setShortShareUrl(null)
+      setShareLoading(false)
+      return
+    }
+
+    // เปิดจาก /s/xxx อยู่แล้ว — ใช้ลิงก์เดิมก่อน จนกว่าจะแก้บิล
+    if (skipNextShortCreateRef.current) {
+      skipNextShortCreateRef.current = false
+      setShareLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setShareLoading(true)
+    setShortShareUrl(null)
+
+    const timer = window.setTimeout(() => {
+      createShortShareUrl({ menus, people, qrId })
+        .then((url) => {
+          if (cancelled) return
+          if (url.includes('/s/')) {
+            setShortShareUrl(url)
+          } else {
+            setShortShareUrl(null)
+            console.warn('Short link fallback to long URL — check VITE_SUPABASE_* env')
+          }
+          setShareLoading(false)
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setShortShareUrl(null)
+            setShareLoading(false)
+          }
+        })
+    }, 500)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [menus, people, qrId, bootLoading])
+
   const shareUrl = shortShareUrl ?? longShareUrl({ menus, people, qrId })
+  const isShortShare = Boolean(shortShareUrl?.includes('/s/'))
 
   const ensureShortShareUrl = useCallback(async () => {
-    if (shortShareUrl) return shortShareUrl
+    if (shortShareUrl?.includes('/s/')) return shortShareUrl
     setShareLoading(true)
     try {
       const url = await createShortShareUrl({ menus, people, qrId })
-      setShortShareUrl(url.includes('/s/') ? url : null)
+      if (url.includes('/s/')) setShortShareUrl(url)
       return url
     } finally {
       setShareLoading(false)
@@ -349,6 +391,7 @@ export function useBill() {
     shareUrl,
     shareLoading,
     bootLoading,
+    isShortShare,
     ensureShortShareUrl,
     addPerson,
     addMenu,

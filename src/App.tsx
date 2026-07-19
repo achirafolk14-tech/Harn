@@ -275,6 +275,14 @@ export default function App() {
               {copied ? '✓' : '⎘'}
             </button>
           </div>
+          {!bill.shareLoading && bill.shareUrl.includes('?b=') && (
+            <p className="share__hint">
+              ยังเป็นลิงก์ยาว — ตั้งค่า VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY บน Vercel แล้ว Redeploy
+            </p>
+          )}
+          {!bill.shareLoading && bill.isShortShare && (
+            <p className="share__ok">ลิงก์สั้นพร้อมแชร์แล้ว</p>
+          )}
         </section>
 
         <ImportExport getBillData={bill.getBillData} onImport={bill.replaceBill} />
