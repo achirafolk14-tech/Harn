@@ -14,7 +14,8 @@ import {
 
 function initialBill(): BillData {
   const params = new URLSearchParams(window.location.search)
-  const billParam = params.get('bill')
+  // รองรับทั้ง ?b= (สั้น) และ ?bill= (ลิงก์เก่า)
+  const billParam = params.get('b') ?? params.get('bill')
   if (billParam) {
     const decoded = decodeBill(billParam)
     if (decoded) return decoded
@@ -43,7 +44,10 @@ export function useBill() {
 
   const shareUrl = useMemo(() => {
     const base = `${window.location.origin}${window.location.pathname}`
-    return `${base}?bill=${encodeBill({ menus, people, qrId })}`
+    const hasData =
+      Object.keys(menus).length > 0 || Object.keys(people).length > 0 || Boolean(qrId)
+    if (!hasData) return base
+    return `${base}?b=${encodeBill({ menus, people, qrId })}`
   }, [menus, people, qrId])
 
   const addPerson = useCallback((name: string) => {

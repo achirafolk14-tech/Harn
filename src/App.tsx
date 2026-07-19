@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useBill } from './hooks/useBill'
 import { MENU_SUGGESTIONS } from './lib/bill'
+import { shortenUrl } from './lib/shorten'
 import { MenuPopup } from './components/MenuPopup'
 import { PeoplePopup } from './components/PeoplePopup'
 import { SettlePanel } from './components/SettlePanel'
@@ -13,6 +14,50 @@ export default function App() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [activePerson, setActivePerson] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [shortUrl, setShortUrl] = useState('')
+  const [shortening, setShortening] = useState(false)
+  const [shortError, setShortError] = useState(false)
+
+  const displayShareUrl = shortUrl || bill.shareUrl
+
+  useEffect(() => {
+    let cancelled = false
+    const longUrl = bill.shareUrl
+
+    // ไม่มียอด/รายการ — ใช้ URL หลักสั้นๆ อยู่แล้ว
+    if (!longUrl.includes('?')) {
+      setShortUrl('')
+      setShortError(false)
+      setShortening(false)
+      return
+    }
+
+    setShortening(true)
+    setShortError(false)
+    setShortUrl('')
+
+    const timer = window.setTimeout(() => {
+      shortenUrl(longUrl)
+        .then((short) => {
+          if (!cancelled) {
+            setShortUrl(short)
+            setShortening(false)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setShortUrl('')
+            setShortError(true)
+            setShortening(false)
+          }
+        })
+    }, 400)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [bill.shareUrl])
 
   const submitMenu = (e: FormEvent) => {
     e.preventDefault()
@@ -39,8 +84,9 @@ export default function App() {
   }
 
   const copyShareUrl = async () => {
+    const text = displayShareUrl
     try {
-      await navigator.clipboard.writeText(bill.shareUrl)
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {
@@ -260,13 +306,26 @@ export default function App() {
             <input
               id="bill_url"
               readOnly
-              value={bill.shareUrl}
+              value={
+                shortening
+                  ? 'กำลังสร้างลิงก์สั้น...'
+                  : displayShareUrl
+              }
               onClick={(e) => (e.target as HTMLInputElement).select()}
             />
-            <button type="button" className="share__copy" onClick={copyShareUrl}>
+            <button
+              type="button"
+              className="share__copy"
+              onClick={copyShareUrl}
+              disabled={shortening}
+              title={shortUrl ? 'คัดลอกลิงก์สั้น' : 'คัดลอกลิงก์'}
+            >
               {copied ? '✓' : '⎘'}
             </button>
           </div>
+          {shortError && (
+            <p className="share__hint">ย่อลิงก์ไม่สำเร็จ — ใช้ลิงก์ยาวแทน</p>
+          )}
         </section>
       </main>
 

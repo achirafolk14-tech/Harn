@@ -1,3 +1,4 @@
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string'
 import type {
   BillData,
   GrossDebt,
@@ -8,6 +9,12 @@ import type {
   Settlement,
   Transfer,
 } from '../types'
+
+/**
+ * แพ็คกะทัดรัดสำหรับแชร์ URL
+ * [version, peopleNames[], menus[[name, price, paidByIdx|-1, peopleIdx[]]], qrId]
+ */
+type PackedBill = [1, string[], [string, number, number, number[]][], string]
 
 export function nameToHue(name: string): number {
   let hue = 0
@@ -135,19 +142,113 @@ export function totalPrice(menus: MenusMap): number {
   return Object.values(menus).reduce((sum, m) => sum + (m.price || 0), 0)
 }
 
+function packBill(data: BillData): PackedBill {
+  const names = Object.keys(data.people)
+  const indexOf = (name: string) => names.indexOf(name)
+
+  const packedMenus: PackedBill[2] = Object.entries(data.menus).map(([name, menu]) => [
+    name,
+    menu.price || 0,
+    menu.paidBy ? indexOf(menu.paidBy) : -1,
+    menu.people.map(indexOf).filter((i) => i >= 0),
+  ])
+
+  return [1, names, packedMenus, data.qrId || '']
+}
+
+function unpackBill(packed: PackedBill): BillData {
+  const [, names, packedMenus, qrId] = packed
+  const people: PeopleMap = {}
+  for (const name of names) {
+    people[name] = { amount: 0, paid: false, hue: nameToHue(name) }
+  }
+
+  const menus: MenusMap = {}
+  for (const [name, price, paidByIdx, peopleIdx] of packedMenus) {
+    const sharePeople = peopleIdx
+      .map((i) => names[i])
+      .filter((n): n is string => Boolean(n))
+    menus[name] = normalizeMenu({
+      price,
+      people: sharePeople,
+      paidBy: paidByIdx >= 0 ? names[paidByIdx] ?? '' : '',
+    })
+  }
+
+  return {
+    menus,
+    people: recomputeAmounts(menus, people),
+    qrId: qrId || '',
+  }
+}
+
+function decodeLegacyBill(parsed: unknown): BillData | null {
+  if (!Array.isArray(parsed) || parsed.length < 2) return null
+
+  // รูปแบบเก่า: [menus, people, qrId]
+  if (
+    parsed[0] &&
+    typeof parsed[0] === 'object' &&
+    !Array.isArray(parsed[0]) &&
+    parsed[1] &&
+    typeof parsed[1] === 'object' &&
+    !Array.isArray(parsed[1])
+  ) {
+    const menus = withUpdatedPerPerson(parsed[0] as MenusMap)
+    const peopleRaw = parsed[1] as PeopleMap
+    const people: PeopleMap = {}
+    for (const [name, p] of Object.entries(peopleRaw)) {
+      people[name] = {
+        amount: 0,
+        paid: Boolean(p?.paid),
+        hue: typeof p?.hue === 'number' ? p.hue : nameToHue(name),
+      }
+    }
+    return {
+      menus,
+      people: recomputeAmounts(menus, people),
+      qrId: typeof parsed[2] === 'string' ? parsed[2] : '',
+    }
+  }
+
+  // แพ็คใหม่แบบยังไม่บีบอัด
+  if (parsed[0] === 1 && Array.isArray(parsed[1]) && Array.isArray(parsed[2])) {
+    return unpackBill(parsed as PackedBill)
+  }
+
+  return null
+}
+
+/** บีบอัดบิลให้สั้นที่สุดสำหรับใส่ใน URL (ไม่ต้อง encodeURIComponent ซ้ำ) */
 export function encodeBill(data: BillData): string {
-  return encodeURIComponent(JSON.stringify([data.menus, data.people, data.qrId]))
+  const json = JSON.stringify(packBill(data))
+  return compressToEncodedURIComponent(json)
 }
 
 export function decodeBill(raw: string): BillData | null {
+  if (!raw) return null
+
+  // ลิงก์ใหม่ (lz-string)
   try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || parsed.length < 2) return null
-    return {
-      menus: withUpdatedPerPerson(parsed[0] ?? {}),
-      people: parsed[1] ?? {},
-      qrId: parsed[2] ?? '',
+    const inflated = decompressFromEncodedURIComponent(raw)
+    if (inflated) {
+      const parsed = JSON.parse(inflated) as unknown
+      const packed = decodeLegacyBill(parsed)
+      if (packed) return packed
     }
+  } catch {
+    // fall through
+  }
+
+  // ลิงก์เก่า (JSON ตรง ๆ / URI-encoded)
+  try {
+    let text = raw
+    try {
+      text = decodeURIComponent(raw)
+    } catch {
+      /* keep raw */
+    }
+    return decodeLegacyBill(JSON.parse(text))
   } catch {
     return null
   }
