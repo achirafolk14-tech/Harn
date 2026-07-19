@@ -275,6 +275,178 @@ export function saveToStorage(data: BillData) {
   localStorage.setItem('bill_qr', data.qrId)
 }
 
+/** รูปแบบไฟล์ส่งออก (อ่านง่าย / นำเข้ากลับได้) */
+export type ExportFile = {
+  v: 1
+  app: 'harn'
+  exportedAt: string
+  qrId: string
+  people: string[]
+  menus: Array<{
+    name: string
+    price: number
+    paidBy: string
+    people: string[]
+  }>
+}
+
+export function toExportFile(data: BillData): ExportFile {
+  return {
+    v: 1,
+    app: 'harn',
+    exportedAt: new Date().toISOString(),
+    qrId: data.qrId || '',
+    people: Object.keys(data.people),
+    menus: Object.entries(data.menus).map(([name, menu]) => ({
+      name,
+      price: menu.price || 0,
+      paidBy: menu.paidBy || '',
+      people: [...menu.people],
+    })),
+  }
+}
+
+export function exportBillText(data: BillData): string {
+  return JSON.stringify(toExportFile(data), null, 2)
+}
+
+function fromExportFile(file: ExportFile): BillData | null {
+  if (file.v !== 1 || !Array.isArray(file.people) || !Array.isArray(file.menus)) {
+    return null
+  }
+
+  const people: PeopleMap = {}
+  for (const name of file.people) {
+    if (typeof name !== 'string' || !name.trim()) continue
+    people[name.trim()] = { amount: 0, paid: false, hue: nameToHue(name.trim()) }
+  }
+
+  const ensurePerson = (raw: string) => {
+    const n = raw.trim()
+    if (!n) return ''
+    if (!people[n]) {
+      people[n] = { amount: 0, paid: false, hue: nameToHue(n) }
+    }
+    return n
+  }
+
+  const menus: MenusMap = {}
+  for (const item of file.menus) {
+    if (!item || typeof item.name !== 'string' || !item.name.trim()) continue
+    const name = item.name.trim()
+
+    for (const p of Array.isArray(item.people) ? item.people : []) {
+      if (typeof p === 'string') ensurePerson(p)
+    }
+    if (typeof item.paidBy === 'string' && item.paidBy.trim()) {
+      ensurePerson(item.paidBy)
+    }
+
+    const sharePeople = (Array.isArray(item.people) ? item.people : [])
+      .map((p) => (typeof p === 'string' ? p.trim() : ''))
+      .filter((p) => p && people[p])
+
+    const paidBy =
+      typeof item.paidBy === 'string' && people[item.paidBy.trim()]
+        ? item.paidBy.trim()
+        : ''
+
+    menus[name] = normalizeMenu({
+      price: Number(item.price) || 0,
+      people: sharePeople,
+      paidBy,
+    })
+  }
+
+  return {
+    menus,
+    people: recomputeAmounts(menus, people),
+    qrId: typeof file.qrId === 'string' ? file.qrId : '',
+  }
+}
+
+/** นำเข้าจาก JSON ไฟล์ / ข้อความ / ลิงก์แชร์ */
+export function parseImportBill(raw: string): BillData | null {
+  const text = raw.trim()
+  if (!text) return null
+
+  // ลิงก์เต็มที่มี ?b= หรือ ?bill=
+  try {
+    if (text.includes('?b=') || text.includes('?bill=') || text.startsWith('http')) {
+      const url = new URL(text, 'https://local.invalid')
+      const param = url.searchParams.get('b') ?? url.searchParams.get('bill')
+      if (param) {
+        const fromLink = decodeBill(param)
+        if (fromLink) return fromLink
+      }
+    }
+  } catch {
+    /* not a url */
+  }
+
+  // payload บีบอัดจากลิงก์
+  const fromEncoded = decodeBill(text)
+  if (fromEncoded) return fromEncoded
+
+  try {
+    const parsed = JSON.parse(text) as unknown
+
+    // ไฟล์ส่งออกของ Harn
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      (parsed as ExportFile).app === 'harn' &&
+      (parsed as ExportFile).v === 1
+    ) {
+      return fromExportFile(parsed as ExportFile)
+    }
+
+    // object แบบ { menus, people, qrId }
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      'menus' in parsed &&
+      'people' in parsed
+    ) {
+      const obj = parsed as { menus: MenusMap; people: PeopleMap; qrId?: string }
+      const menus = withUpdatedPerPerson(obj.menus ?? {})
+      const peopleRaw = obj.people ?? {}
+      const people: PeopleMap = {}
+      for (const [name, p] of Object.entries(peopleRaw)) {
+        people[name] = {
+          amount: 0,
+          paid: Boolean(p?.paid),
+          hue: typeof p?.hue === 'number' ? p.hue : nameToHue(name),
+        }
+      }
+      return {
+        menus,
+        people: recomputeAmounts(menus, people),
+        qrId: typeof obj.qrId === 'string' ? obj.qrId : '',
+      }
+    }
+
+    return decodeLegacyBill(parsed)
+  } catch {
+    return null
+  }
+}
+
+export function downloadBillFile(data: BillData, filename?: string) {
+  const blob = new Blob([exportBillText(data)], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const stamp = new Date().toISOString().slice(0, 10)
+  a.href = url
+  a.download = filename || `harn-bill-${stamp}.json`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export const MENU_SUGGESTIONS = [
   'อาหาร',
   'น้ำอัดลม',

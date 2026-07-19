@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BillData, MenusMap, PeopleMap, TabName } from '../types'
 import {
   computeSettlement,
@@ -11,44 +11,120 @@ import {
   totalPrice,
   withUpdatedPerPerson,
 } from '../lib/bill'
+import { PUBLIC_SHARE_ORIGIN } from '../lib/supabase'
+import {
+  createShortShareUrl,
+  extractShareIdFromPath,
+  loadShareById,
+} from '../lib/shareStore'
 
-function initialBill(): BillData {
+function initialBillSync(): BillData {
   const params = new URLSearchParams(window.location.search)
-  // รองรับทั้ง ?b= (สั้น) และ ?bill= (ลิงก์เก่า)
   const billParam = params.get('b') ?? params.get('bill')
   if (billParam) {
     const decoded = decodeBill(billParam)
     if (decoded) return decoded
   }
+  // ถ้าเปิด /s/xxx จะโหลด async ทีหลัง — เริ่มจากว่างก่อน
+  if (extractShareIdFromPath(window.location.pathname)) {
+    return { menus: {}, people: {}, qrId: '' }
+  }
   return loadFromStorage()
 }
 
+function longShareUrl(data: BillData): string {
+  const hasData =
+    Object.keys(data.menus).length > 0 ||
+    Object.keys(data.people).length > 0 ||
+    Boolean(data.qrId)
+  if (!hasData) return `${PUBLIC_SHARE_ORIGIN}/`
+  return `${PUBLIC_SHARE_ORIGIN}/?b=${encodeBill(data)}`
+}
+
 export function useBill() {
-  const [menus, setMenus] = useState<MenusMap>(() => initialBill().menus)
-  const [people, setPeople] = useState<PeopleMap>(() => initialBill().people)
-  const [qrId, setQrId] = useState(() => initialBill().qrId)
+  const seed = initialBillSync()
+  const [menus, setMenus] = useState<MenusMap>(() => seed.menus)
+  const [people, setPeople] = useState<PeopleMap>(() => seed.people)
+  const [qrId, setQrId] = useState(() => seed.qrId)
   const [tab, setTab] = useState<TabName>('menu')
+  const [shortShareUrl, setShortShareUrl] = useState<string | null>(() => {
+    const id = extractShareIdFromPath(window.location.pathname)
+    return id ? `${PUBLIC_SHARE_ORIGIN}/s/${id}` : null
+  })
+  const [shareLoading, setShareLoading] = useState(false)
+  const [bootLoading, setBootLoading] = useState(() =>
+    Boolean(extractShareIdFromPath(window.location.pathname)),
+  )
+  const skipShortClearRef = useRef(true)
 
   const persist = useCallback((nextMenus: MenusMap, nextPeople: PeopleMap, nextQr: string) => {
     saveToStorage({ menus: nextMenus, people: nextPeople, qrId: nextQr })
   }, [])
 
   useEffect(() => {
+    if (bootLoading) return
     persist(menus, people, qrId)
-  }, [menus, people, qrId, persist])
+  }, [menus, people, qrId, persist, bootLoading])
+
+  // โหลดจาก /s/:id (Supabase โปรเจกต์ harn เท่านั้น)
+  useEffect(() => {
+    const id = extractShareIdFromPath(window.location.pathname)
+    if (!id) {
+      setBootLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setBootLoading(true)
+    loadShareById(id)
+      .then((data) => {
+        if (cancelled) return
+        if (data) {
+          skipShortClearRef.current = true
+          setMenus(data.menus)
+          setPeople(data.people)
+          setQrId(data.qrId)
+          setShortShareUrl(`${PUBLIC_SHARE_ORIGIN}/s/${id}`)
+        }
+        setBootLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) setBootLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // แก้บิลแล้วเคลียร์ลิงก์สั้นเก่า (ต้องสร้างใหม่ตอนคัดลอก)
+  useEffect(() => {
+    if (bootLoading) return
+    if (skipShortClearRef.current) {
+      skipShortClearRef.current = false
+      return
+    }
+    setShortShareUrl(null)
+  }, [menus, people, qrId, bootLoading])
 
   const peopleCount = Object.keys(people).length
   const billTotal = useMemo(() => totalPrice(menus), [menus])
   const settlement = useMemo(() => computeSettlement(menus), [menus])
   const transfers = settlement.transfers
 
-  const shareUrl = useMemo(() => {
-    const base = `${window.location.origin}${window.location.pathname}`
-    const hasData =
-      Object.keys(menus).length > 0 || Object.keys(people).length > 0 || Boolean(qrId)
-    if (!hasData) return base
-    return `${base}?b=${encodeBill({ menus, people, qrId })}`
-  }, [menus, people, qrId])
+  const shareUrl = shortShareUrl ?? longShareUrl({ menus, people, qrId })
+
+  const ensureShortShareUrl = useCallback(async () => {
+    if (shortShareUrl) return shortShareUrl
+    setShareLoading(true)
+    try {
+      const url = await createShortShareUrl({ menus, people, qrId })
+      setShortShareUrl(url.includes('/s/') ? url : null)
+      return url
+    } finally {
+      setShareLoading(false)
+    }
+  }, [shortShareUrl, menus, people, qrId])
 
   const addPerson = useCallback((name: string) => {
     const trimmed = name.trim()
@@ -247,6 +323,19 @@ export function useBill() {
     setQrId(id.trim())
   }, [])
 
+  const replaceBill = useCallback((data: BillData) => {
+    const nextMenus = withUpdatedPerPerson(data.menus)
+    const nextPeople = recomputeAmounts(nextMenus, data.people)
+    setMenus(nextMenus)
+    setPeople(nextPeople)
+    setQrId(data.qrId || '')
+  }, [])
+
+  const getBillData = useCallback(
+    (): BillData => ({ menus, people, qrId }),
+    [menus, people, qrId],
+  )
+
   return {
     menus,
     people,
@@ -258,6 +347,9 @@ export function useBill() {
     transfers,
     settlement,
     shareUrl,
+    shareLoading,
+    bootLoading,
+    ensureShortShareUrl,
     addPerson,
     addMenu,
     updateMenuPrice,
@@ -272,5 +364,7 @@ export function useBill() {
     clearMenus,
     clearPeople,
     setPromptPay,
+    replaceBill,
+    getBillData,
   }
 }

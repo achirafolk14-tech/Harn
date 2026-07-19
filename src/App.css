@@ -328,6 +328,64 @@
   cursor: wait;
 }
 
+.io {
+  padding: 0.75rem 1.1rem 1rem;
+  border-top: 1px solid #eee;
+  background: #fff;
+}
+
+.io__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.btn--io {
+  background: #f0f7fb;
+  color: #0288d1;
+  border: 1px solid #b3e5fc;
+  padding: 0.55rem 0.35rem;
+  font-size: 0.85rem;
+}
+
+.btn--io:hover {
+  background: #e1f5fe;
+}
+
+.io__paste {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.io__paste textarea {
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+  outline: none;
+}
+
+.io__paste textarea:focus {
+  border-color: #03a9f4;
+}
+
+.io__paste .btn--primary {
+  align-self: flex-end;
+}
+
+.io__msg {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #43a047;
+  text-align: center;
+}
+
 .share label {
   font-weight: 700;
   font-size: 0.9rem;
